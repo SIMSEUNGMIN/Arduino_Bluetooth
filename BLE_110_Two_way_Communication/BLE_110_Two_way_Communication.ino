@@ -5,10 +5,11 @@ int pio11 = 53;
 int u_sel = 23;
 int spi = 22;
 
-char inChar = -1;
-
 bool curMode = true; //현재 모드 Server = true, Client = false
-bool mode = true; // 원하는 모드 Server = true, Client = false
+bool mode = false; // 시작하길 원하는 모드 Server = true, Client = false
+
+String scannedData[10] = ""; //스캔 저장된 데이터
+int count = 0; //데이터가 저장될 칸(데이터 개수)
 
 void setup() {
   // put your setup code here, to run once:
@@ -18,16 +19,27 @@ void setup() {
   setCLE110();
   setMode(mode); //처음 시작시 설정되어있는 모드 확인
   setModeSetting(mode); //원하는 모드의 세부 세팅
+  delay(1000);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  if(Serial.available()){ //블루투스에 쓰기
-    inChar = (char)Serial.read();
-    Serial1.write(inChar);
-   }
 
-   SerialWrite();
+  if(!curMode){ //현재 모드가 Client일 경우
+    //스캔 시작 및 데이터(ADDR주소랑 NAME이 반드시 존재하는 데이터) 저장
+    //스캔한 데이터 목록 출력
+    startScanNStore();
+    //반대편 블루투스 모듈(NAME = SIM)이랑 연결
+//    connection();
+    
+  }
+  else{ //현재 모드가 Server일 경우
+  
+  }
+  
+  BLEWrite();
+
+  SerialWrite();
 }
 
 void setCLE110(){
@@ -66,8 +78,108 @@ void setModeSetting(bool mode){ //모드 내에서 세팅 설정
   }
   else{ //Client
     ATCommand("AT+SCANINTERVAL=500\r", false, false);
-    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
+//    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
   }
+}
+
+void startScanNStore(){
+  String s = "";
+
+  Serial1.print("AT+SCAN=5\r"); // 데이터 전송
+  delay(100);
+
+  while(1){
+   if(Serial1.available() > 0){ // 버퍼에 쌓인 데이터가 있는지 확인
+      char c = Serial1.read();
+      if(c == 0x0D){ // 읽은 데이터가 \r(끝)인지 확인
+        if(s.indexOf("OK") > -1){ // 스캔 시작을 알리는 OK
+          Serial.println(s);
+          //다음은 Scanning이 들어온 다음 
+          //데이터 목록이 들어옴
+          storeData();
+          break;
+        }
+        else{// ERROR인 경우
+          s = "";
+          Serial1.print("AT+SCAN=5\r"); // 다시 재전송
+          delay(100);
+        }
+      }
+      else s += c; // 읽은 데이터가 끝이 아닌 경우 String에 합침
+   }
+   else delay(10); //버퍼에 쌓인 데이터가 없으면 delay 
+  }
+}
+
+void storeData(){
+  String s = "";
+  count = 0;
+
+  while(1){
+    if(Serial1.available() > 0){ // 버퍼에 쌓인 데이터가 있는지 확인
+      char c = Serial1.read();
+      if(c == 0x0D){
+        if(s.indexOf("SCANNING") > -1){ // 스캔 시작 SCANNING
+          Serial.println("스캔 시작");
+//          Serial.println(s);
+          s = ""; //데이터 비움
+        }
+        else if(s.indexOf("OK") > -1){ // 스캔을 종료하는 OK
+          Serial.println("스캔 종료");
+//          Serial.println(s);
+          break;
+        }
+        else{ // 스캔한 데이터가 한 줄씩 들어오는 경우
+//          Serial.println(s);
+          if(checkData(s)){ //데이터 확인
+            splitData(s); //제대로 된 데이터일 경우 분리해서 저장
+          }
+          
+          s = ""; //데이터 비움  
+        }
+      }
+      else s += c; // 읽은 데이터가 끝이 아닌 경우 String에 합침
+    }
+    else delay(10); //버퍼에 쌓인 데이터가 없으면 delay 
+  }
+}
+
+bool checkData(String data){
+  //데이터가 제대로된 데이터인지 확인 (ADDR, NAME)
+  if((data.indexOf("BT_ADDR") > -1) 
+                    && (data.indexOf("NAME") > -1)){
+    return true;  
+  }
+  else return false;
+}
+
+void splitData(String data){
+  String s = "";
+  
+  int btStart = data.indexOf("BT_ADDR");
+
+  for(int i = btStart+8; i < data.length(); i++){
+    char temp = data.charAt(i);
+    if(temp == ']') break; // 끝
+    else{ //끝이 아닐 때
+      if(temp != ':') s += temp; // ADDR 저장
+    }
+  }
+
+  s += " ";
+
+  int nameStart = data.indexOf("NAME");
+
+  for(int i = nameStart+6; i < data.length(); i++){
+    char temp = data.charAt(i);
+    if(temp == ']') break; // 끝
+    else s += temp;
+  }
+
+  scannedData[count] = s;
+  count++; //다음 칸을 사용할 수 있도록 증가
+
+  Serial.println(s);
 }
 
 void ATCommand(String input, bool role, bool mode){
