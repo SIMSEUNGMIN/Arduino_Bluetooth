@@ -39,11 +39,15 @@ void loop() {
         //데이터 전송 요청을 받으면 데이터를 전송
         Serial.println("데이터를 보낼 것");
         Serial1.print("i am data.\r");
+        delay(500);
         Serial1.print("finish.\r");
+        delay(500);
         //데이터 전송 완료를 보내고 나서 연결이 끊기기를 기다림
         recvDisconnect();
 
-        changeMode(); //모드 변경
+        changeMode(); // 모드 변경
+        setModeSetting(curMode); // 모드에 맞는 세팅
+        delay(1000);
       }
     }
     else startScanNStore(); // 못 찾았으면 다시 스캔
@@ -53,16 +57,19 @@ void loop() {
     //기다리다가 +CONNDECTED명령어를 받으면 연결된 것을 확인
     if(recvConnect()){
       //연결되었으면 데이터 요청
-      Serial.println("데이터를 요청할 것");
-      Serial1.print("send me data.\r");
-      
+      Serial.println("데이터를 요청");
+      sendRequest(); // 데이터 전송을 요청
+      Serial.println("데이터 전송 요청 완료");
       //데이터 확인
       checkRecvData();
+      Serial.println("데이터 수신 완료");
       //데이터를 다 받았으면 연결 종료
       ATCommand("AT+COMMAND\r", false, false); //커맨드 모드로 변경
       sendDisconnect(); // Disconnect 명령 보냄
       
       changeMode(); //모드 변경
+      setModeSetting(curMode); // 모드에 맞는 세팅
+      delay(1000);
     }
   }
   
@@ -220,7 +227,7 @@ int findData(String input){ //input이 있으면 해당 배열 칸을 return
   return -1; // 전부 확인 했는데 없을 경우 -1
 }
 
-void sendConnect(int index){
+void sendConnect(int index){ // Client
   String addr = scannedData[index].substring(0, 12); //맥 주소 추출
   
   addr = "AT+CONNECT=" + addr + "\r";
@@ -238,6 +245,7 @@ void sendConnect(int index){
          }
          else if(s.indexOf("CONNECTED") > -1){ // 연결 성공
             Serial.println(s);
+            delay(1000);
             return;
          }
          else{
@@ -251,7 +259,7 @@ void sendConnect(int index){
   } 
 }
 
-bool recvConnect(){
+bool recvConnect(){ //Server
   String s = ""; 
   
   while(1){
@@ -260,6 +268,7 @@ bool recvConnect(){
        if(c == 0x0D){ // 읽은 데이터가 \r(끝)인지 확인
          if(s.indexOf("CONNECTED") > -1){ // 연결 성공
             Serial.println(s);
+            delay(1000);
             return true;
          }
          else{
@@ -274,16 +283,54 @@ bool recvConnect(){
   } 
 }
 
-bool recvRequest(){
+void sendRequest(){ //Server, 데이터 전송 요청을 보내는 함수
+  String s = "";
+
+  Serial1.print("send me data.\r");
+  delay(100);
+
+  int count = 0;
+
+//  while(1){
+//    Serial1.print(count++);
+//    Serial1.print('\r');
+//    Serial1.print("send me data.\r");
+//    delay(100);
+//  }
+  
+  while(1){
+    if(Serial1.available() > 0){
+      char c = Serial1.read();
+      if(c == '.'){ // 읽은 데이터가 끝인지 확인
+        if(s.indexOf("ok") > -1){ // 데이터를 보낼 준비 완료라는 뜻
+          Serial.println(s);
+          return; // 데이터를 받는 함수 종료
+        }
+        else{
+          s = "";
+          Serial1.print("send me data.\r");
+          Serial.println("hi");
+          delay(500);
+        } 
+      }
+      else s += c;
+    }
+    else delay(10);
+  }
+}
+
+bool recvRequest(){ // 데이터 전송을 요청 받는 함수, Client
   String s = ""; 
   
   while(1){
     if(Serial1.available() > 0){
       char c = Serial1.read();
-//      Serial.print(c);
        if(c == '.'){ // 읽은 데이터가 (끝)인지 확인
          if(s.indexOf("send") > -1){ // 데이터 전송 요청 받음
+            Serial.println("드디어 도착했다!!!!!!!!!!!!!!");
             Serial.println(s);
+            Serial1.print("ok.\r");
+            delay(100);
             return true;
          }
          else{
@@ -298,7 +345,7 @@ bool recvRequest(){
   } 
 }
 
-void checkRecvData(){ // finish가 들어오기 전까지 들어오는 데이터 받음
+void checkRecvData(){ // finish가 들어오기 전까지 들어오는 데이터 받음, Server
   String s = "";
   
   while(1){
@@ -306,11 +353,11 @@ void checkRecvData(){ // finish가 들어오기 전까지 들어오는 데이터
       char c = Serial1.read();
       if(c == '.'){ // 읽은 데이터가 끝인지 확인
         if(s.indexOf("finish") > -1){ // 데이터 전송이 끝났음
-          Serial1.println(s);
+          Serial.println(s);
           return; // 데이터를 받는 함수 종료
         }
         else{
-          Serial1.println(s); //전송된 데이터 출력
+          Serial.println(s); //전송된 데이터 출력
           s = "";
         } 
       }
@@ -320,7 +367,7 @@ void checkRecvData(){ // finish가 들어오기 전까지 들어오는 데이터
   }
 }
 
-void sendDisconnect(){ 
+void sendDisconnect(){ //Server
   String s = "";
   
   Serial1.print("AT+DISCONNECT\r");
@@ -352,7 +399,7 @@ void sendDisconnect(){
   }
 }
 
-void recvDisconnect(){
+void recvDisconnect(){ //Client
   String s = "";
   
   while(1){
@@ -426,12 +473,20 @@ boolean checkMode(){ //버퍼에 있는 데이터 들고와서 모드 확인
       char c = Serial1.read();
       if(c == 0x0D){ // 한 줄 다 읽어왔을 때
         Serial.println(s);
+
+        delay(1000); //모드가 변경되면서 설정들이 조절될 시간
+        SerialWrite();
         
         if(s.indexOf("SERVER") > -1){ // s에 SERVER이 있는 경우
+//          delay(1000); //모드가 변경되면서 설정들이 조절될 시간
+//          SerialWrite();
           return true; // curmode = true (Server)
         }
-        else return false; // curmode = false (Client)
-        
+        else{
+//           delay(1000); //모드가 변경되면서 설정들이 조절될 시간
+//           SerialWrite();
+          return false; // curmode = false (Client)
+        }
       }
       else s += c; // 다 읽어오지 않았으면 Stirng에 붙임
       
