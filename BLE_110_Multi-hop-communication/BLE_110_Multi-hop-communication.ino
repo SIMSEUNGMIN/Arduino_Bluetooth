@@ -9,10 +9,11 @@ bool curMode = true; //현재 모드 Server = true, Client = false
 bool mode = false; //시작하길 원하는 모드 Server = true, Client = false
 
 int myNode = 0; //자신의 노드 (A~I)
+int dstNode = 0; //패킷을 받았을 때 설정되는 노드
 
 int connectedNode = -1; //현재 연결된 노드
 
-//각 노드에서 받아온 데이터를 저장 (행 = src 노드, 열 = dst, src-> dst에 대한 데이터)
+//각 노드에서 받아온 데이터를 저장 (행 = dst 노드, 열 = src, src-> dst에 대한 데이터)
 //데이터가 전달되고 나면 삭제되어야 함 /////////////////////////////////
 String storedData[9][2] = "";
 
@@ -39,49 +40,69 @@ void loop() {
 
     boolean resultCheckNodeList = checkNodeList();
     
-    while(!resultCheckNodeList){ /////////////////////////////////////////////////// 아직 생성 안 함
+    while(!resultCheckNodeList){ ///////////////////////////////////////////////////아직 생성 안 함
       //하나라도 존재하지 않는 경우가 생긴다면 
       //scan 시작 (함수)
-      startScanNStore();
+      startScanNStore(); //////////////////////////////////수정 필요
       
       //한 번의 스캔이 끝날 때마다 확인 (resultCheckNodeList = checkNodeList)
       resultCheckNodeList = checkNodeList();
       
       //필요한 노드의 정보가 다 모였다면 스캔을 끝내게 됨 (if문으로 resultChecKNodeList확인)
       if(resultCheckNodeList) return;
-      
     }
 
     //while문을 빠져나온 경우 필요한 노드가 다 Mac주소를 가지고 있다는 뜻이 됨
    
     //자신이 연결 요청을 했던 적 없는 노드에게 연결
     //(이때 알파벳 순서대로 검사하기 때문에 A,C 둘다 연결 흔적이 없을 경우 A랑 먼저 연결하게 됨)
+    int resultFindNode = findNodeForConnection(); ///////////findData()함수 수정
+    Serial.print("연결할 만한 노드 : ");
+    Serial.println(resultFindNode);
+
+    if(resultFindNode != -1){ //연결할만한 노드가 있는 경우 연결 시도
+      sendConnect(resultFindNode); ///////////////////////////////sendConnect()함수 수정 필요
+    }
 
     //연결된 경우 데이터를 전송
-
+    sendData(); /////////////////////////////sendData() 함수 수정 필요
+    //이 함수 안에서 finish를 보내는 부분까지 관리
+    
     //데이터를 다 전송 후 (상대방으로부터 OK를 받음)
     //OK를 받은 경우 Finish를 전송
     //Server노드가 연결을 끊음
 
+    //Server노드가 연결을 끊기를 기다림
+    recvDisconnect();
+
     //연결이 끊기고 나면 모드 변경이 일어남
+    changeMode(); // 모드 변경
+    setModeSetting(curMode); // 모드에 맞는 세팅
+    delay(1000);
   }
   else{ //현재 이 노드의 모드가 Server일 경우
 
     //Advertising하면서 연결을 기다림
+    if(recvConnect()){
+      //연결 요청이 온 경우 무조건 연결을 받음
+
+      //finish를 받기 전까지 데이터 수신
+      recvData();
+      Serial.println("데이터 수신 완료");
+
+      //COMMAND모드로 들어가 연결을 끊음
+      ATCommand("AT+COMMAND\r", false, false);
+      //Disconnect 명령 보냄
+      sendDisconnect();
+
+      //연결이 끊긴 것을 확인했으면
+      //모드 변경
+      changeMode();
+      setModeSetting(curMode);
+      delay(1000);
     
-    //연결 요청이 온 경우 무조건 연결을 받음
-
-    //연결 후 Client가 데이터를 전송했을 때 데이터를 받았으면 
-    //OK를 전송 
-    //Finish를 받으면 데이터 전송이 끝났다고 생각
-
-    //(위의 절차를 밟는 함수 안에서 Data의 출력 및 분리 저장 또한 일어남)
-    
-
-    //COMMAND모드로 들어가 연결을 끊음
-
-    //연결이 끊긴 것을 확인했으면
-    //모드 변경
+    }
+  }
   
 //  BLEWrite();
 //  SerialWrite();
@@ -112,6 +133,145 @@ void setMode(bool mode){ //모드 설정(초기모드가 Server인지 Client인�
    if(!curMode && mode){ // 3번
      changeMode();
    }
+}
+
+void setModeSetting(bool mode){ //모드 내에서 세팅 설정
+  if(mode){ //Server
+    ATCommand("AT\r", false, false);
+    ATCommand("AT+MANUF=A\r", false, false);
+    ATCommand("AT+ADVDATA=I'm A\r", false, false);
+    ATCommand("AT+ADVINTERVAL=1000\r", false, false);
+  }
+  else{ //Client
+    ATCommand("AT+SCANINTERVAL=500\r", false, false);
+//    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
+  }
+}
+
+/*
+ * 함수 위치 순서
+ * 
+ * client
+ * checkNodeList
+ * startScanNStore
+ * findNodeForConnection
+ * sendConnect
+ * sendData
+ * recvDisconnect
+ * 
+ * server(구현 완료)
+ * recvConnect
+ * recvData
+ * sendDisconnect
+ */
+
+bool recvConnect(){ //Server
+  String s = ""; 
+  
+  while(1){
+    if(Serial1.available() > 0){
+      char c = Serial1.read();
+       if(c == 0x0D){ // 읽은 데이터가 \r(끝)인지 확인
+         if(s.indexOf("CONNECTED") > -1){ // 연결 성공하면 return
+            Serial.println(s);
+            delay(1000);
+            return true;
+         }
+         else{
+           Serial.print("이상한 데이터1 : ");
+           Serial.println(s);
+           s = "";
+         }
+       }
+       else s += c; // 읽은 데이터가 끝이 아닌 경우 String에 합침
+    }
+    else delay(10);
+  } 
+}
+
+void recvData(){ //Server
+  //finish가 들어오기 전까지 데이터를 받음
+  //finish가 아닐 경우 데이터를 받고 OK 전송
+  String s = "";
+  
+  while(1){
+    if(Serial1.available() > 0){
+      char c = Serial1.read();
+      if(c == '.'){ // 읽은 데이터가 끝인지 확인
+        if(s.indexOf("finish") > -1){ // 데이터 전송이 끝났음
+          Serial.println("데이터 수신 완료");
+          return; // 데이터를 받는 함수 종료
+        }
+        else{
+
+          //전송 받은 데이터의 dst 확인
+          int dst = checkDst(s);
+
+          //dst의 목적지가 나인 경우 print
+          //내가 아닌 경우 저장
+          if(dst == myNode){
+            Serial.println(s);
+          }
+          else{
+            storeData(s, dst);
+          }
+          
+          //OK전송
+          Serial1.print("OK.\r");
+          //버퍼 지우기
+          s = "";
+        } 
+      }
+      else s += c;
+    }
+    else delay(10);
+  }
+}
+
+int checkDst(String input){ //Server, dstIndex를 반환
+  return ((input.subString(2,3)).charAt(0)-65);
+}
+
+void storeData(String input, int dstIndex){ //Server, 데이터 저장
+  //데이터 분리 (데이터 구조 : src, dst, data)
+  String src = input.subString(0,1);
+  String data = input.subString(4, input.length);
+
+  //데이터 저장(행->dst, 열0->src, 열1->data)
+  storedData[dstIndex][0] = src;
+  storedData[dstIndex][1] = data; 
+}
+
+void sendDisconnect(){ //Server, 연결 끊기 요청
+  String s = "";
+  
+  Serial1.print("AT+DISCONNECT\r");
+  delay(100);
+
+  while(1){
+    if(Serial1.available() > 0){ //버퍼에 쌓인 데이터가 있는지 확인
+      char c = Serial1.read();
+      if(c == 0x0D){ //읽은 데이터가 \r(끝)인지 확인
+        if(s.indexOf("OK") > -1){ //한 문장이 들어온 경우 OK 확인
+          Serial.println(s);
+          s = "";
+        }
+        else if(s.indexOf("DISCONNECT") > -1){
+          Serial.println(s);
+          return;
+        }
+        else{ //ERROR인 경우
+          s = "";
+          Serial1.print("AT+DISCONNECT\r");
+          delay(100);
+        }
+      }
+      else s += c; //읽은 데이터가 끝이 아닌 경우 String에 합침
+    }
+    else{ //버퍼에 쌓인 데이터가 없으면 다시 delay
+      delay(10);
+    }
+  }
 }
 
 void ATCommand(String input, bool role, bool mode){
@@ -183,19 +343,6 @@ boolean checkMode(){ //버퍼에 있는 데이터 들고와서 모드 확인
     else{
       delay(10);
     }  
-  }
-}
-
-void setModeSetting(bool mode){ //모드 내에서 세팅 설정
-  if(mode){ //Server
-    ATCommand("AT\r", false, false);
-    ATCommand("AT+MANUF=A\r", false, false);
-    ATCommand("AT+ADVDATA=I'm A\r", false, false);
-    ATCommand("AT+ADVINTERVAL=1000\r", false, false);
-  }
-  else{ //Client
-    ATCommand("AT+SCANINTERVAL=500\r", false, false);
-//    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
   }
 }
 
