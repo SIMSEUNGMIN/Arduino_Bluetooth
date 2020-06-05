@@ -214,6 +214,7 @@ void recvData(){ //Server
           }
           else{
             storeData(s, dst);
+            dstNode = dst; //데이터를 전송할 노드 설정 //////////////////////
           }
           
           //OK전송
