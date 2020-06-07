@@ -80,7 +80,7 @@ void loop() {
     dstNode = -1;
 
     //연결 history 갱신
-    updateConHistory(); ///////////////만들어야함
+    updateConHistory();
 
     //연결이 끊기고 나면 모드 변경이 일어남
     changeMode(); // 모드 변경
