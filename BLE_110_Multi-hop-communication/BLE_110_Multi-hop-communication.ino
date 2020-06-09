@@ -6,7 +6,7 @@ int u_sel = 23;
 int spi = 22;
 
 bool curMode = true; //현재 모드 Server = true, Client = false
-bool mode = false; //시작하길 원하는 모드 Server = true, Client = false
+bool mode = true; //시작하길 원하는 모드 Server = true, Client = false
 
 int myNode = 0; //자신의 노드 (A~I)
 int dstNode = -1; //패킷을 받았을 때 설정되는 노드 (패킷 전달 목적)
@@ -15,13 +15,13 @@ int connectedNode = -1; //현재 연결된 노드
 
 //각 노드에서 받아온 데이터를 저장 (행 = dst 노드, 열 = src, src-> dst에 대한 데이터)
 //데이터가 전달되고 나면 삭제
-String storedPacket[9][2] = "";
+String storedPacket[9][2] = {{"",""}};
 
 //필요한 노드들의 데이터를 저장할 List(9개 A~I) -> 계속 지속되는 List
 //-> 각 List마다 scannedData로 최종 저장되어야 하는 노드가 다르지만
 //   코드의 통일성을 위해서 9칸 배열을 생성
 // 행 = scanned 노드, 열 = scanned 노드의 mac 주소, 연결 history
-String nodeList[9][2] = ""; // -> 원래 명 : scannedData
+String nodeList[9][2] = {{"",""}}; // -> 원래 명 : scannedData
 
 void setup() {
   // put your setup code here, to run once:
@@ -32,6 +32,10 @@ void setup() {
   setMode(mode); //처음 시작시 설정되어있는 모드 확인
   setModeSetting(mode); //원하는 모드의 세부 세팅
   delay(1000);
+
+//  //B 세팅 용
+//  nodeList[0][0] = "74F07DC9B085";
+//  nodeList[1][0] = "74F07DC9CF7E";
 }
 
 void loop() {
@@ -57,6 +61,9 @@ void loop() {
     //연결을 요청할 노드를 찾음
     //dst가 set된 경우 dst를 연결 노드로 지정, 아닐 경우 연결 요청 한 적 없는 노드에게 연결
     //(이때 알파벳 순서대로 검사하기 때문에 A,C 둘다 연결 흔적이 없을 경우 A랑 먼저 연결하게 됨)
+    Serial.print("dstNode : ");
+    Serial.println(dstNode);
+    
     int resultFindNode = findNodeForConnection();
     
     Serial.print("연결할 노드 : ");
@@ -71,7 +78,7 @@ void loop() {
 
     //연결된 경우 데이터를 전송
     //데이터가 전송 완료되면 finish 전송 후 종료
-    sendPacket();
+    sendPacket(resultFindNode);
     
     //Server노드가 연결을 끊기를 기다림
     recvDisconnect();
@@ -145,13 +152,37 @@ void setMode(bool mode){ //모드 설정(초기모드가 Server인지 Client인�
 void setModeSetting(bool mode){ //모드 내에서 세팅 설정
   if(mode){ //Server
     ATCommand("AT\r", false, false);
-    ATCommand("AT+MANUF=A\r", false, false);
-    ATCommand("AT+ADVDATA=I'm A\r", false, false);
+    String s = setManuf(); //내 노드에 맞는 이름 설정
+    ATCommand(s, false, false);
+//    ATCommand("AT+ADVDATA=I'm A\r", false, false);
     ATCommand("AT+ADVINTERVAL=1000\r", false, false);
   }
   else{ //Client
     ATCommand("AT+SCANINTERVAL=500\r", false, false);
 //    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
+  }
+}
+
+String setManuf(){ //advertising용 이름 설정
+  switch (myNode+65){
+    case 'A':
+      return "AT+MANUF=A\r";
+    case 'B':
+      return "AT+MANUF=B\r";
+    case 'C':
+      return "AT+MANUF=C\r";
+    case 'D':
+      return "";
+    case 'E':
+      return "";
+    case 'F':
+      return "";
+    case 'G':
+      return "";
+    case 'H':
+      return "";
+    case 'I':
+      return "";
   }
 }
 
@@ -358,14 +389,15 @@ int findNodeForConnection(){ //Client, 연결을 위한 노드 찾기
   return -1;
 }
 
+//각 노드마다 다른 라우팅 테이블을 가지기 때문에 개별로 세팅 필요
 int chcekRoutingTable(int dst){//Client, dst로 가기 위해 연결되어야 할 노드를 찾음
   switch(dst+65){
     case 'A':
-      return ('B'-65);
+      return -1;
     case 'B':
       return ('B'-65);
     case 'C':
-      return ('B'-65)
+      return ('B'-65);
     case 'D':
       return -1;
     case 'E':
@@ -418,7 +450,7 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
   
   if(dstNode != -1){ //전달할 데이터가 있는 경우
     String src = storedPacket[index][0];
-    String dst = ((char)(index+65)) + "";
+    String dst = (String)((char)(index+65));
     String data = storedPacket[index][1];
 
     packet = src + "|" + dst + "|" + data + "." + "\r";
@@ -428,16 +460,18 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
     storedPacket[index][1] = "";
   }
   else{ //목적지가 없는 경우
-    switch(index+65){
+    switch(myNode+65){
     case 'A':
       packet = "A|C|hello!!!.\r";
       delay(500);
       break;
     case 'B':
       packet = "I am B!!!.\r";
+      delay(500);
       break;
     case 'C':
       packet = "C|A|bye!!!.\r";
+      delay(500);
       break;
     case 'D':
       packet = "I am D!!!.\r";
@@ -460,6 +494,9 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
     }
   }
 
+  Serial.print("완성된 패킷 : ");
+  Serial.println(packet);
+
   String s= "";
 
   Serial1.print(packet); //패킷 전송
@@ -467,7 +504,7 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
   while(1){
     if(Serial1.available() > 0){
       char c = Serial1.read();
-       if(c == "."){
+       if(c == '.'){
          if(s.indexOf("ok") > -1){ //내가 보낸 데이터가 잘 전송 되었을 시
             Serial.print("데이터 전송 완료");
             delay(50);
@@ -524,7 +561,7 @@ void updateConHistory(){ //Client, 연결 종료 후 History 관리
   //모두 연결 이력이 있는 경우
   for(int i = 0; i < 9; i++){
     if(nodeList[i][0] != "")
-      nodeList[i][i] = "";
+      nodeList[i][1] = "";
   }
 }
 
@@ -566,7 +603,6 @@ void recvPacket(){ //Server
           return; // 데이터를 받는 함수 종료
         }
         else{
-
           //전송 받은 데이터의 dst 확인
           int dst = checkDst(s);
 
@@ -593,13 +629,17 @@ void recvPacket(){ //Server
 }
 
 int checkDst(String input){ //Server, dstIndex를 반환
-  return ((input.subString(2,3)).charAt(0)-65);
+  Serial.print("들어온 데이터 : ");
+  Serial.print(input);
+  Serial.print("input.substring : ");
+  Serial.println(input.substring(2,3));
+  return ((input.substring(2,3)).charAt(0)-65);
 }
 
 void storePacket(String input, int dstIndex){ //Server, 데이터 저장
   //데이터 분리 (데이터 구조 : src, dst, data)
-  String src = input.subString(0,1);
-  String data = input.subString(4, input.length);
+  String src = input.substring(0,1);
+  String data = input.substring(4, input.length());
 
   //데이터 저장(행->dst, 열0->src, 열1->data)
   storedPacket[dstIndex][0] = src;
