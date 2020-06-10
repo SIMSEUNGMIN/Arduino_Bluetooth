@@ -6,7 +6,7 @@ int u_sel = 23;
 int spi = 22;
 
 bool curMode = true; //현재 모드 Server = true, Client = false
-bool mode = true; //시작하길 원하는 모드 Server = true, Client = false
+bool mode = false; //시작하길 원하는 모드 Server = true, Client = false
 
 int myNode = 0; //자신의 노드 (A~I)
 int dstNode = -1; //패킷을 받았을 때 설정되는 노드 (패킷 전달 목적)
@@ -33,9 +33,10 @@ void setup() {
   setModeSetting(mode); //원하는 모드의 세부 세팅
   delay(1000);
 
+  nodeList[1][0] = "74F07DC9B085";
 //  //B 세팅 용
 //  nodeList[0][0] = "74F07DC9B085";
-//  nodeList[1][0] = "74F07DC9CF7E";
+//  nodeList[2][0] = "74F07DC9CF7E";
 }
 
 void loop() {
@@ -102,7 +103,6 @@ void loop() {
 
       //finish를 받기 전까지 데이터 수신
       recvPacket();
-      Serial.println("데이터 수신 완료");
 
       //COMMAND모드로 들어가 연결을 끊음
       ATCommand("AT+COMMAND\r", false, false);
@@ -160,6 +160,7 @@ void setModeSetting(bool mode){ //모드 내에서 세팅 설정
   else{ //Client
     ATCommand("AT+SCANINTERVAL=500\r", false, false);
 //    ATCommand("AT+SCAN\r", false, false); //기본 스캔 = 15초
+    delay(1000);
   }
 }
 
@@ -241,7 +242,7 @@ void startScanNStore(){ //Client, scan작업 및 스캔된 노드 whiteList적�
       char c = Serial1.read();
       if(c == 0x0D){ // 읽은 데이터가 \r(끝)인지 확인
         if(s.indexOf("OK") > -1){ // 스캔 시작을 알리는 OK
-          Serial.println(s);
+//          Serial.println(s);
           //다음은 +Scanning이 들어온 다음 
           //데이터 목록이 들어옴
           storeNode();
@@ -277,7 +278,7 @@ void storeNode(){ //Client, 필요한 노드들의 데이터만 저장 (White Li
         else{ // 스캔한 데이터가 한 줄씩 들어오는 경우
           // 데이터가 원하는 형식인지 확인 (ADDR, NAME)
           // 데이터가 원하는 노드 중 하나인지 확인 (White List)
-          Serial.println(s);
+//          Serial.println(s);
           if(checkPacketformat(s) && checkPacketNode(s)){ 
             splitPacketNStore(s); //형식도 맞고 원하는 노드일 경우 분리해서 저장
           }
@@ -389,7 +390,6 @@ int findNodeForConnection(){ //Client, 연결을 위한 노드 찾기
   return -1;
 }
 
-//각 노드마다 다른 라우팅 테이블을 가지기 때문에 개별로 세팅 필요
 int chcekRoutingTable(int dst){//Client, dst로 가기 위해 연결되어야 할 노드를 찾음
   switch(dst+65){
     case 'A':
@@ -429,7 +429,7 @@ void sendConnect(int index){ //Client, 지정한 server에게 연결을 요청
          if(s.indexOf("OK") > -1){
             s = "";
          }
-         else if(s.indexOf("CONNECTED") > -1){ // 연결 성공
+         else if(!(s.indexOf("DIS") > -1)){ // 연결 성공
             Serial.println(s);
             delay(1000); //연결 안정을 위한 대기
             return;
@@ -462,11 +462,11 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
   else{ //목적지가 없는 경우
     switch(myNode+65){
     case 'A':
-      packet = "A|C|hello!!!.\r";
+      packet = "A|B|hello!!!.\r";
       delay(500);
       break;
     case 'B':
-      packet = "I am B!!!.\r";
+      packet = "B|A|bye!!!.\r";
       delay(500);
       break;
     case 'C':
@@ -494,8 +494,8 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
     }
   }
 
-  Serial.print("완성된 패킷 : ");
-  Serial.println(packet);
+//  Serial.print("완성된 패킷 : ");
+//  Serial.println(packet);
 
   String s= "";
 
@@ -506,7 +506,7 @@ void sendPacket(int index){ //Client, 연결된 노드에 맞는 데이터 전�
       char c = Serial1.read();
        if(c == '.'){
          if(s.indexOf("ok") > -1){ //내가 보낸 데이터가 잘 전송 되었을 시
-            Serial.print("데이터 전송 완료");
+//            Serial.print("데이터 전송 완료");
             delay(50);
             Serial1.print("finish.\r"); //데이터 종료 메세지 전송
             delay(500);
@@ -599,7 +599,7 @@ void recvPacket(){ //Server
       char c = Serial1.read();
       if(c == '.'){ // 읽은 데이터가 끝인지 확인
         if(s.indexOf("finish") > -1){ // 데이터 전송이 끝났음
-          Serial.println("데이터 수신 완료");
+//          Serial.println("데이터 수신 완료");
           return; // 데이터를 받는 함수 종료
         }
         else{
@@ -629,10 +629,10 @@ void recvPacket(){ //Server
 }
 
 int checkDst(String input){ //Server, dstIndex를 반환
-  Serial.print("들어온 데이터 : ");
-  Serial.print(input);
-  Serial.print("input.substring : ");
-  Serial.println(input.substring(2,3));
+//  Serial.print("들어온 데이터 : ");
+//  Serial.print(input);
+//  Serial.print("input.substring : ");
+//  Serial.println(input.substring(2,3));
   return ((input.substring(2,3)).charAt(0)-65);
 }
 
@@ -691,7 +691,7 @@ void ATCommand(String input, bool role, bool mode){
         if(s.indexOf("OK") > -1){ // 한 문장이 들어온 경우 OK 확인
           
           if(role){ //rolechange일 경우
-            Serial.println(s); // OK면 출력
+//            Serial.println(s); // OK면 출력
             delay(3000);
             SerialWrite(); //초기화 후 ready출력
           }
@@ -699,7 +699,7 @@ void ATCommand(String input, bool role, bool mode){
             curMode = checkMode(); // Server = true, Client = false
           }
           else{ // 남은 데이터 읽어옴
-            Serial.println(s); // OK면 출력
+//            Serial.println(s); // OK면 출력
             SerialWrite(); 
           }
           
